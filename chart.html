@@ -17,36 +17,63 @@
       if (!res.ok) throw new Error("chart.csv not found");
       const text = await res.text();
 
-      const rows = text.trim().split("\n").slice(1);
-      const data = [];
-      const markers = [];
+      const rows = text.trim().split("\n");
+      if (rows.length <= 1) throw new Error("CSV file has no data rows");
 
-      for (let i = 0; i < rows.length; i++) {
-        const row = rows[i];
-        const cols = row.split(",").map(x => x.trim());
-        if (cols.length < 6) continue;
+      const headers = rows[0].split(",").map(h => h.trim().toLowerCase());
+      const timeIndex = headers.indexOf("time");
+      const closeIndex = headers.indexOf("close");
+      const labelIndex = headers.indexOf("label");
+      const predictedIndex = headers.indexOf("predicted_label");
 
-        const [time, open, high, low, close, label] = cols;
-        const c = parseFloat(close);
-        if (isNaN(c)) continue;
+      if (timeIndex === -1 || closeIndex === -1) {
+        throw new Error("CSV must have 'time' and 'Close' columns");
+      }
 
-        const formattedTime = new Date(time).toISOString().slice(0, 10);
-        data.push({ time: formattedTime, value: c });
+      let data = [];
+      let markers = [];
 
-        // if label is R, add marker (red dot)
-        if (label && label.toUpperCase() === 'R') {
+      for (let i = 1; i < rows.length; i++) {
+        const cols = rows[i].split(",").map(x => x.trim());
+        const timeStr = cols[timeIndex];
+        const closeVal = parseFloat(cols[closeIndex]);
+        if (!timeStr || isNaN(closeVal)) continue;
+
+        const [year, month, day] = timeStr.split("-").map(Number);
+        if (!year || !month || !day) continue;
+        const timeObj = { year, month, day };
+
+        data.push({ time: timeObj, value: closeVal });
+
+        // 🔴 Red marker for Label = R
+        if (labelIndex !== -1 && cols[labelIndex]?.toUpperCase() === "R") {
           markers.push({
-            time: formattedTime,
-            position: 'aboveBar',
-            color: 'red',
-            shape: 'circle',
-            size: 2
+            time: timeObj,
+            position: "aboveBar",
+            color: "red",
+            shape: "circle",
+            size: 1,
           });
-          console.log(`🔴 R at ${formattedTime} | close=${c}`);
+        }
+
+        // 🟡 Yellow marker for Predicted_Label = R
+        if (predictedIndex !== -1 && cols[predictedIndex]?.toUpperCase() === "R") {
+          markers.push({
+            time: timeObj,
+            position: "belowBar",
+            color: "yellow",
+            shape: "circle",
+            size: 1,
+          });
         }
       }
 
-      console.log(`✅ Loaded ${data.length} points, ${markers.length} red markers`);
+      // ✅ Sort by date ascending
+      data.sort((a, b) => {
+        const d1 = new Date(a.time.year, a.time.month - 1, a.time.day);
+        const d2 = new Date(b.time.year, b.time.month - 1, b.time.day);
+        return d1 - d2;
+      });
 
       const chart = LightweightCharts.createChart(document.getElementById("chart"), {
         layout: { background: { color: "#0f1114" }, textColor: "#DDD" },
@@ -54,18 +81,13 @@
         timeScale: { timeVisible: true, secondsVisible: false },
       });
 
-      const lineSeries = chart.addLineSeries({
-        color: "#4CAF50",
-        lineWidth: 2,
-      });
-
+      const lineSeries = chart.addLineSeries({ color: "#4CAF50", lineWidth: 2 });
       lineSeries.setData(data);
-      lineSeries.setMarkers(markers); // 👈 This is the key fix!
-
+      lineSeries.setMarkers(markers);
       chart.timeScale().fitContent();
     }
 
-    loadCSV().catch(console.error);
+    loadCSV().catch(err => console.error("❌ Error:", err.message));
   </script>
 </body>
 </html>
